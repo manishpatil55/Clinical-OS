@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg[binary,pool]
+pydantic[email]
+python-jose[cryptography]
+bcrypt
+python-multipart
+python-dotenv
+python-slugify
