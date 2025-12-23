@@ -55,7 +55,20 @@ export default function PatientProfile() {
     const [fileName, setFileName] = useState("")
     const [fileType, setFileType] = useState("pdf") // Simple select
 
+    const [currentUser, setCurrentUser] = useState<any>(null)
+
     useEffect(() => {
+        // Get current user info for permission checks
+        const fetchUser = async () => {
+            const token = localStorage.getItem("token")
+            try {
+                const res = await axios.get("http://127.0.0.1:8000/users/me", {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+                setCurrentUser(res.data)
+            } catch (e) { } // Ignore
+        }
+        fetchUser()
         fetchProfile()
     }, [id])
 
@@ -133,58 +146,68 @@ export default function PatientProfile() {
                         <TabsTrigger value="info">Demographics</TabsTrigger>
                     </TabsList>
 
-                    {/* TIMELINE TAB */}
-                    <TabsContent value="timeline" className="space-y-4 pt-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-semibold">Activity History</h3>
-                            <Button size="sm"><Plus className="h-4 w-4 mr-2" /> Add Record</Button>
-                        </div>
+                    {/* TIMELINE TAB - Restricted for Front Desk */}
+                    {currentUser && !currentUser.roles.includes("front_desk") ? (
+                        <TabsContent value="timeline" className="space-y-4 pt-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold">Activity History</h3>
+                                {/* Add Record: Only Doctor or Nurse */}
+                                {currentUser.roles.some((r: string) => ["doctor", "nurse", "admin"].includes(r)) && (
+                                    <Button size="sm"><Plus className="h-4 w-4 mr-2" /> Add Record</Button>
+                                )}
+                            </div>
 
-                        {/* Combined History */}
-                        <div className="space-y-4">
-                            {/* Clinical Records (Labs etc) */}
-                            {patient.clinical_records?.map(rec => (
-                                <Card key={rec.id} className="border-l-4 border-l-purple-500">
-                                    <CardContent className="p-4">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h4 className="font-bold capitalize">{rec.record_type.replace(/_/g, " ")}</h4>
-                                                <div className="mt-2 text-sm text-zinc-700 font-mono bg-zinc-50 p-2 rounded">
-                                                    {Object.entries(rec.data).map(([k, v]) => (
-                                                        <div key={k}><span className="text-zinc-500">{k}:</span> {v as string}</div>
-                                                    ))}
+                            {/* Combined History */}
+                            <div className="space-y-4">
+                                {/* Clinical Records (Labs etc) */}
+                                {patient.clinical_records?.map(rec => (
+                                    <Card key={rec.id} className="border-l-4 border-l-purple-500">
+                                        <CardContent className="p-4">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h4 className="font-bold capitalize">{rec.record_type.replace(/_/g, " ")}</h4>
+                                                    <div className="mt-2 text-sm text-zinc-700 font-mono bg-zinc-50 p-2 rounded">
+                                                        {Object.entries(rec.data).map(([k, v]) => (
+                                                            <div key={k}><span className="text-zinc-500">{k}:</span> {v as string}</div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <span className="text-xs text-zinc-400">{new Date(rec.recorded_at).toLocaleDateString()}</span>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+
+                                {patient.appointments?.map(apt => (
+                                    <Card key={apt.id}>
+                                        <CardContent className="p-4 flex gap-4">
+                                            <div className="flex flex-col items-center min-w-[60px]">
+                                                <div className="bg-blue-100 text-blue-700 p-2 rounded-lg">
+                                                    <Calendar className="h-5 w-5" />
                                                 </div>
                                             </div>
-                                            <span className="text-xs text-zinc-400">{new Date(rec.recorded_at).toLocaleDateString()}</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-
-                            {patient.appointments?.map(apt => (
-                                <Card key={apt.id}>
-                                    <CardContent className="p-4 flex gap-4">
-                                        <div className="flex flex-col items-center min-w-[60px]">
-                                            <div className="bg-blue-100 text-blue-700 p-2 rounded-lg">
-                                                <Calendar className="h-5 w-5" />
+                                            <div className="flex-1">
+                                                <div className="flex justify-between">
+                                                    <h4 className="font-semibold">{apt.reason || "General Visit"}</h4>
+                                                    <span className="text-xs text-zinc-500">
+                                                        {new Date(apt.start_time).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm text-zinc-600 mt-1">Status: {apt.status}</p>
                                             </div>
-                                        </div>
-                                        <div className="flex-1">
-                                            <div className="flex justify-between">
-                                                <h4 className="font-semibold">{apt.reason || "General Visit"}</h4>
-                                                <span className="text-xs text-zinc-500">
-                                                    {new Date(apt.start_time).toLocaleDateString()}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-zinc-600 mt-1">Status: {apt.status}</p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
+                                        </CardContent>
+                                    </Card>
+                                ))}
 
-                            {(patient.appointments?.length === 0 && patient.clinical_records?.length === 0) && <p className="text-zinc-500 italic">No history.</p>}
-                        </div>
-                    </TabsContent>
+                                {(patient.appointments?.length === 0 && patient.clinical_records?.length === 0) && <p className="text-zinc-500 italic">No history.</p>}
+                            </div>
+                        </TabsContent>
+                    ) : (
+                        <TabsContent value="timeline" className="pt-8 text-center text-muted-foreground">
+                            <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                            <p>Detailed clinical history is restricted for your role.</p>
+                        </TabsContent>
+                    )}
 
                     {/* ATTACHMENTS TAB */}
                     <TabsContent value="attachments" className="pt-4">

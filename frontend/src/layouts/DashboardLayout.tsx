@@ -47,20 +47,17 @@ export default function DashboardLayout() {
     if (!user) return <div className="flex h-screen items-center justify-center"><h2 className="animate-pulse text-xl">Loading Clinical OS...</h2></div>
 
     // Define sidebar items with visibility logic
-    // Define sidebar items with visibility logic
     const sidebarItems = [
         { icon: LayoutDashboard, label: "Overview", href: "/", visible: true },
-        // CLINICAL ITEMS: Hide if Super Admin (CEO doesn't need to see specific appointments)
-        { icon: Calendar, label: "Appointments", href: "/appointments", visible: !user?.is_super_admin && user?.roles?.some(r => ["admin", "doctor", "front_desk"].includes(r)) },
-        { icon: Users, label: "Patients", href: "/patients", visible: !user?.is_super_admin },
-        { icon: Import, label: "Lab Import", href: "/lab-import", visible: !user?.is_super_admin },
+        // CLINICAL ITEMS
+        { icon: Calendar, label: "Appointments", href: "/appointments", visible: !user?.is_super_admin },
+        { icon: Users, label: "Patients", href: "/patients", visible: !user?.is_super_admin }, // Front Desk needs to register/find patients
+        { icon: Import, label: "Lab Import", href: "/lab-import", visible: !user?.is_super_admin && user?.roles?.some(r => ["admin", "doctor", "nurse"].includes(r)) }, // No Front Desk
 
-        // PLATFORM ITEMS: Only for Super Admin
+        // PLATFORM ITEMS
         { icon: Building2, label: "Clinics (Tenants)", href: "/tenants", visible: user?.is_super_admin },
 
-        // MIXED ITEMS (But functionally different contexts)
-        // User Mgmt: Super Admin sees Global Staff? Or just Tenant Admins? For now, keep visible for both contexts.
-        // User Mgmt: Only for CLINIC Admins (to manage their staff). Super Admin uses 'Clinics' tab.
+        // ADMIN ITEMS
         { icon: Users, label: "Staff Management", href: "/users", visible: !user?.is_super_admin && user?.roles?.includes("admin") },
         { icon: Settings, label: "System Settings", href: "/settings", visible: user?.is_super_admin || user?.roles?.includes("admin") },
     ]
@@ -95,7 +92,13 @@ export default function DashboardLayout() {
                         ))}
                     </nav>
                 </div>
-                <div className="mt-auto border-t p-4">
+                <div className="mt-auto border-t p-4 space-y-4">
+                    <div className="text-center">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Powered by</p>
+                        <p className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+                            Clinical OS
+                        </p>
+                    </div>
                     <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
                         <LogOut className="h-4 w-4" />
                         Logout

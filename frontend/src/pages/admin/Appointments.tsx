@@ -36,6 +36,8 @@ export default function Appointments() {
     const [patients, setPatients] = useState<Patient[]>([])
     const [doctors, setDoctors] = useState<User[]>([])
 
+    const [currentUser, setCurrentUser] = useState<User | null>(null)
+
     // Booking Form State
     const [isAddOpen, setIsAddOpen] = useState(false)
     const [bookingForm, setBookingForm] = useState({
@@ -57,6 +59,9 @@ export default function Appointments() {
         try {
             const token = localStorage.getItem("token")
             const headers = { Authorization: `Bearer ${token}` }
+            // Fetch Current User
+            axios.get("http://127.0.0.1:8000/users/me", { headers }).then(r => setCurrentUser(r.data)).catch(() => { })
+
             const [a, p, u] = await Promise.all([
                 axios.get("http://127.0.0.1:8000/appointments", { headers }),
                 axios.get("http://127.0.0.1:8000/patients", { headers }),
@@ -287,9 +292,12 @@ export default function Appointments() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex justify-end gap-2">
-                                            <Button size="sm" variant="outline" onClick={() => openRxWriter(apt)}>
-                                                <FileText className="h-3 w-3 mr-1 text-blue-600" /> Rx
-                                            </Button>
+                                            {/* Only Doctors (and Super Admins/Admins if they treat) can write Rx */}
+                                            {currentUser?.roles.some(r => ["doctor", "admin"].includes(r)) && (
+                                                <Button size="sm" variant="outline" onClick={() => openRxWriter(apt)}>
+                                                    <FileText className="h-3 w-3 mr-1 text-blue-600" /> Rx
+                                                </Button>
+                                            )}
                                         </div>
                                     </TableCell>
                                 </TableRow>
