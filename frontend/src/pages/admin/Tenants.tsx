@@ -46,7 +46,7 @@ export default function Tenants() {
     const fetchTenants = async () => {
         try {
             const token = localStorage.getItem("token")
-            const res = await axios.get("http://localhost:8000/tenants", {
+            const res = await axios.get("http://127.0.0.1:8000/tenants", {
                 headers: { Authorization: `Bearer ${token}` }
             })
             setTenants(res.data)
@@ -66,7 +66,7 @@ export default function Tenants() {
         setSubmitting(true)
         try {
             const token = localStorage.getItem("token")
-            await axios.post("http://localhost:8000/tenants", formData, {
+            await axios.post("http://127.0.0.1:8000/tenants", formData, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             setFormData({ name: "", admin_username: "", admin_password: "" })
@@ -83,7 +83,7 @@ export default function Tenants() {
         if (!tenantToImpersonate) return
         try {
             const token = localStorage.getItem("token")
-            const res = await axios.post(`http://localhost:8000/tenants/${tenantToImpersonate.id}/impersonate`, {}, {
+            const res = await axios.post(`http://127.0.0.1:8000/tenants/${tenantToImpersonate.id}/impersonate`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             localStorage.setItem("token", res.data.access_token)
@@ -99,7 +99,7 @@ export default function Tenants() {
         if (!tenantToDelete) return
         try {
             const token = localStorage.getItem("token")
-            await axios.delete(`http://localhost:8000/tenants/${tenantToDelete.id}`, {
+            await axios.delete(`http://127.0.0.1:8000/tenants/${tenantToDelete.id}`, {
                 headers: { Authorization: `Bearer ${token}` }
             })
             fetchTenants()
@@ -181,6 +181,7 @@ export default function Tenants() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Clinic Name</TableHead>
+                            <TableHead>Admin Username</TableHead>
                             <TableHead>Domain ID</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -188,7 +189,7 @@ export default function Tenants() {
                     <TableBody>
                         {loading ? (
                             <TableRow>
-                                <TableCell colSpan={3} className="text-center py-10">
+                                <TableCell colSpan={4} className="text-center py-10">
                                     <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
@@ -197,6 +198,11 @@ export default function Tenants() {
                                 <TableCell className="font-medium">
                                     {tenant.name}
                                     {tenant.is_super_admin && <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">HQ</span>}
+                                </TableCell>
+                                <TableCell className="text-muted-foreground">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-secondary text-secondary-foreground">
+                                        {(tenant as any).admin_username || "N/A"}
+                                    </span>
                                 </TableCell>
                                 <TableCell className="text-muted-foreground">{tenant.domain || "N/A"}</TableCell>
                                 <TableCell className="text-right">

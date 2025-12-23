@@ -1,73 +1,127 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import JSONB
 from database import Base
-import datetime
-import uuid
+from sqlalchemy import Column, String, Boolean, ForeignKey, Integer, DateTime, Date, Text, Float
+from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import JSONB
+from datetime import datetime
 
-# --- 1. The Real Estate (Tenants) ---
 class Tenant(Base):
     __tablename__ = "tenants"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String, unique=True, index=True)
+    domain = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    is_super_admin = Column(Boolean, default=False)
     
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    name: Mapped[str] = mapped_column(String, index=True) # "Apollo Clinic"
-    domain: Mapped[str] = mapped_column(String, nullable=True) # "apollo.clinicalos.com"
-    
-    # "God Mode" (If true, this clinic is YOU managing others)
-    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False)
-    
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
-    
-    users = relationship("User", back_populates="tenant")
-    patients = relationship("Patient", back_populates="tenant")
+    # Settings (One-to-One)
+    settings = relationship("TenantSettings", back_populates="tenant", uselist=False)
 
-# --- 2. The Staff (Users) ---
+class TenantSettings(Base):
+    __tablename__ = "tenant_settings"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    
+    clinic_name = Column(String) # For display on PDF
+    logo_url = Column(String, nullable=True)
+    address = Column(Text, nullable=True)
+    phone = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+    
+    tenant = relationship("Tenant", back_populates="settings")
+
 class User(Base):
     __tablename__ = "users"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
-    
-    username: Mapped[str] = mapped_column(String, unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String)
-    
-    role: Mapped[str] = mapped_column(String, default="staff") # "admin", "doctor", "front_desk"
-    
-    tenant = relationship("Tenant", back_populates="users")
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    username = Column(String, index=True)
+    hashed_password = Column(String)
+    roles = Column(JSONB, default=["staff"]) # ["admin", "doctor", "nurse"]
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- 3. The Customer (Patient) ---
 class Patient(Base):
     __tablename__ = "patients"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id")) # Data Isolation Layer!
-    
-    # Core Identity (Fixed)
-    name: Mapped[str] = mapped_column(String, index=True)
-    mobile: Mapped[str] = mapped_column(String, index=True)
-    age: Mapped[int] = mapped_column(Integer, nullable=True)
-    gender: Mapped[str] = mapped_column(String, nullable=True)
-    
-    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
-    
-    tenant = relationship("Tenant", back_populates="patients")
-    clinical_records = relationship("ClinicalRecord", back_populates="patient")
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    mrn = Column(String, index=True) # Medical Record Number
+    name = Column(String, index=True)
+    dob = Column(Date, nullable=True)
+    gender = Column(String)
+    mobile = Column(String)
+    blood_group = Column(String, nullable=True)
+    allergies = Column(JSONB, default=[]) 
+    address = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- 4. The Magic Layer (Flexible Data) ---
+    clinical_records = relationship("ClinicalRecord", back_populates="patient")
+    appointments = relationship("Appointment", back_populates="patient")
+    attachments = relationship("Attachment", back_populates="patient")
+
 class ClinicalRecord(Base):
     __tablename__ = "clinical_records"
-    
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"))
-    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"))
-    
-    # "What is this?" -> "vitals", "dental_map", "lab_report_cbc"
-    record_type: Mapped[str] = mapped_column(String, index=True) 
-    
-    # "The Data" -> {"bp": "120/80"} OR {"tooth_12": "cavity"}
-    # This column allows the system to store ANYTHING.
-    data: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    
-    recorded_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=func.now())
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    patient_id = Column(String, ForeignKey("patients.id"))
+    date = Column(DateTime, default=datetime.utcnow)
+    type = Column(String) # e.g. "Vitals", "History", "Lab"
+    data = Column(JSONB)
     
     patient = relationship("Patient", back_populates="clinical_records")
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    patient_id = Column(String, ForeignKey("patients.id"))
+    doctor_id = Column(String, ForeignKey("users.id")) # Assign to Doc
+    start_time = Column(DateTime)
+    end_time = Column(DateTime)
+    status = Column(String, default="scheduled") # scheduled, confirmed, completed, cancelled
+    reason = Column(String, nullable=True)
+    
+    patient = relationship("Patient", back_populates="appointments")
+    prescription = relationship("Prescription", back_populates="appointment", uselist=False)
+    invoice = relationship("Invoice", back_populates="appointment", uselist=False)
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    patient_id = Column(String, ForeignKey("patients.id"))
+    file_name = Column(String)
+    file_url = Column(String)
+    file_type = Column(String)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    
+    patient = relationship("Patient", back_populates="attachments")
+
+# --- COMMERCIAL LAYER MODELS ---
+
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    appointment_id = Column(String, ForeignKey("appointments.id"))
+    doctor_id = Column(String, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Core Data
+    medications = Column(JSONB) # List of { drug: "Amox", dose: "500mg", freq: "BD", duration: "5d" }
+    notes = Column(Text, nullable=True) # Advice
+    
+    appointment = relationship("Appointment", back_populates="prescription")
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String, ForeignKey("tenants.id"))
+    appointment_id = Column(String, ForeignKey("appointments.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Financials
+    total_amount = Column(Float)
+    status = Column(String, default="unpaid") # unpaid, paid, cancelled
+    line_items = Column(JSONB) # List of { description: "Consultation", amount: 500 }
+    
+    appointment = relationship("Appointment", back_populates="invoice")
+
+import uuid

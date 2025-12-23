@@ -1,18 +1,11 @@
 import { useState, useEffect } from "react"
+import { useOutletContext } from "react-router-dom"
 import axios from "axios"
-import { Plus, Loader2, Key, Trash2 } from "lucide-react"
+import { Plus, Search, KeyRound, Ban, CheckCircle2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
     AlertDialog,
     AlertDialogAction,
@@ -23,205 +16,517 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+
+const SimpleCheckbox = ({ checked, onCheckedChange, id }: { checked: boolean, onCheckedChange: (c: boolean) => void, id: string }) => (
+    <input
+        type="checkbox"
+        id={id}
+        checked={checked}
+        onChange={(e) => onCheckedChange(e.target.checked)}
+        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+    />
+)
 
 interface User {
     id: string
     username: string
-    role: string
+    roles: string[]
     tenant_id: string
+    is_active: boolean
 }
 
+interface UserContext {
+    id: string
+    username: string
+    roles: string[]
+    tenant_name: string
+    is_super_admin: boolean
+}
+
+const AVAILABLE_ROLES = ["admin", "doctor", "nurse", "front_desk"]
+
 export default function Users() {
+    const { user: currentUser } = useOutletContext<{ user: UserContext }>()
     const [users, setUsers] = useState<User[]>([])
     const [loading, setLoading] = useState(true)
-    const [showCreate, setShowCreate] = useState(false)
-    const [formData, setFormData] = useState({ username: "", password: "", role: "doctor" })
-    const [submitting, setSubmitting] = useState(false)
+    const [searchTerm, setSearchTerm] = useState("")
 
-    // Password Reset State
-    const [userToReset, setUserToReset] = useState<User | null>(null)
+    // Add User State
+    const [isAddOpen, setIsAddOpen] = useState(false)
+    const [newUsername, setNewUsername] = useState("")
     const [newPassword, setNewPassword] = useState("")
+    const [selectedRoles, setSelectedRoles] = useState<string[]>(["doctor"]) // Default valid role
+    const [addError, setAddError] = useState("")
 
-    const fetchUsers = async () => {
-        try {
-            const token = localStorage.getItem("token")
-            // Fetch users for *this* tenant. Requires backend support (we might need to add/verify GET /users logic)
-            // For now, let's assume GET /users returns scoped users.
-            const res = await axios.get("http://localhost:8000/users", {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            setUsers(res.data)
-        } catch (err) {
-            console.error("Failed to fetch users", err)
-        } finally {
-            setLoading(false)
-        }
-    }
+    // Reset Password State
+    const [resetUser, setResetUser] = useState<User | null>(null)
+    const [resetPasswordInput, setResetPasswordInput] = useState("")
+
+    // Edit User State
+    const [editingUser, setEditingUser] = useState<User | null>(null)
+
+    // Delete User State
+    const [deleteUser, setDeleteUser] = useState<User | null>(null)
 
     useEffect(() => {
         fetchUsers()
     }, [])
 
-    const handleCreate = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setSubmitting(true)
+    const fetchUsers = async () => {
         try {
             const token = localStorage.getItem("token")
-            await axios.post("http://localhost:8000/users", formData, {
-                headers: { Authorization: `Bearer ${token}` }
-            })
-            setFormData({ username: "", password: "", role: "doctor" })
-            setShowCreate(false)
-            fetchUsers()
+            // SUPER ADMIN: Fetch Global Admins
+            if (currentUser?.is_super_admin) {
+                const res = await axios.get("http://127.0.0.1:8000/users/global-admins", {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+                setUsers(res.data)
+            } else {
+                // CLINIC ADMIN: Fetch Local Staff
+                const res = await axios.get("http://127.0.0.1:8000/users", {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+                // User wants to see ALL staff including themselves/other admins
+                setUsers(res.data)
+            }
         } catch (err) {
-            alert("Failed to create user: " + ((err as any).response?.data?.detail || (err as any).message))
+            console.error(err)
         } finally {
-            setSubmitting(false)
+            setLoading(false)
         }
     }
 
-    const handleResetPassword = async () => {
-        if (!userToReset || !newPassword) return
+    // ... (rest of filtering logic)
+    const filteredUsers = users
+        .filter((u) => u.username.toLowerCase().includes(searchTerm.toLowerCase()))
+        .sort((a, b) => {
+            // Prioritize Pure Admins (Default Admin)
+            const aIsPureAdmin = a.roles.length === 1 && a.roles[0] === "admin"
+            const bIsPureAdmin = b.roles.length === 1 && b.roles[0] === "admin"
+
+            if (aIsPureAdmin && !bIsPureAdmin) return -1
+            if (!aIsPureAdmin && bIsPureAdmin) return 1
+
+            // Secondary sort: general admins
+            const aIsAdmin = a.roles.includes("admin")
+            const bIsAdmin = b.roles.includes("admin")
+            if (aIsAdmin && !bIsAdmin) return -1
+            if (!aIsAdmin && bIsAdmin) return 1
+
+            return a.username.localeCompare(b.username)
+        })
+
+    const toggleRole = (role: string) => {
+        if (selectedRoles.includes(role)) {
+            setSelectedRoles(selectedRoles.filter(r => r !== role))
+        } else {
+            setSelectedRoles([...selectedRoles, role])
+        }
+    }
+
+    const handleAddUser = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setAddError("")
+
+        if (selectedRoles.length === 0) {
+            setAddError("Please select at least one role.")
+            return
+        }
+
         try {
             const token = localStorage.getItem("token")
-            await axios.post(`http://localhost:8000/users/${userToReset.id}/reset-password`, { password: newPassword }, {
+            await axios.post("http://127.0.0.1:8000/users", {
+                username: newUsername,
+                password: newPassword,
+                roles: selectedRoles
+            }, {
                 headers: { Authorization: `Bearer ${token}` }
             })
-            alert("Password reset successfully")
-            setUserToReset(null)
+
+            // Reset form
+            setNewUsername("")
             setNewPassword("")
-        } catch (err) {
-            alert("Reset failed: " + ((err as any).response?.data?.detail || (err as any).message))
+            setSelectedRoles(["doctor"])
+            setIsAddOpen(false)
+            fetchUsers()
+        } catch (err: any) {
+            console.error(err)
+            setAddError(err.response?.data?.detail || "Failed to create user")
         }
+    }
+
+    const handleResetPassword = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!resetUser) return
+        try {
+            const token = localStorage.getItem("token")
+            await axios.post(`http://127.0.0.1:8000/users/${resetUser.id}/reset-password`, {
+                password: resetPasswordInput
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            alert("Password updated successfully.")
+            setResetUser(null)
+            setResetPasswordInput("")
+        } catch (err: any) {
+            console.error(err)
+            alert("Failed to reset password: " + (err.response?.data?.detail || err.message))
+        }
+    }
+
+    const openEdit = (user: User) => {
+        setEditingUser(user)
+        setSelectedRoles(user.roles)
+        setAddError("")
+    }
+
+    const handleEditUser = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!editingUser) return
+        setAddError("")
+
+        if (selectedRoles.length === 0) {
+            setAddError("Please select at least one role.")
+            return
+        }
+
+        try {
+            const token = localStorage.getItem("token")
+            await axios.patch(`http://127.0.0.1:8000/users/${editingUser.id}`, {
+                roles: selectedRoles
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+
+            setEditingUser(null)
+            fetchUsers()
+        } catch (err: any) {
+            console.error(err)
+            setAddError(err.response?.data?.detail || "Failed to update user")
+        }
+    }
+
+    const toggleStatus = async (user: User) => {
+        // Optimistic update
+        const originalUsers = [...users]
+        setUsers(users.map(u => u.id === user.id ? { ...u, is_active: !u.is_active } : u))
+
+        try {
+            const token = localStorage.getItem("token")
+            // Assuming there is an endpoint or we use PATCH user
+            // NOTE: The backend 'update_user' endpoint can handle is_active
+            // Using PATCH /users/{id}
+            await axios.patch(`http://127.0.0.1:8000/users/${user.id}`, {
+                is_active: !user.is_active
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+        } catch (err) {
+            console.error(err)
+            setUsers(originalUsers)
+            alert("Failed to update status")
+        }
+    }
+
+    const handleDeleteUser = async () => {
+        if (!deleteUser) return
+        try {
+            const token = localStorage.getItem("token")
+            await axios.delete(`http://127.0.0.1:8000/users/${deleteUser.id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            })
+            // Remove from local state
+            setUsers(users.filter(u => u.id !== deleteUser.id))
+            setDeleteUser(null)
+        } catch (err: any) {
+            console.error(err)
+            alert("Failed to delete user: " + (err.response?.data?.detail || err.message))
+        }
+    }
+
+    const RoleBadge = ({ role }: { role: string }) => {
+        const colors: Record<string, string> = {
+            admin: "bg-red-100 text-red-800",
+            doctor: "bg-blue-100 text-blue-800",
+            nurse: "bg-green-100 text-green-800",
+            front_desk: "bg-purple-100 text-purple-800"
+        }
+        return (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mr-1 ${colors[role] || "bg-gray-100 text-gray-800"}`}>
+                {role.replace('_', ' ')}
+            </span>
+        )
     }
 
     return (
         <div className="space-y-6">
+            {/* ... (header same) ... */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Staff Management</h2>
-                    <p className="text-muted-foreground">Manage doctors, nurses, and staff access.</p>
+                    <h2 className="text-3xl font-bold tracking-tight">
+                        {currentUser?.is_super_admin ? "Hospital Administrators" : "Staff Management"}
+                    </h2>
+                    <p className="text-muted-foreground">
+                        {currentUser?.is_super_admin ? "Directory of admins across all clinics." : "Manage access, roles, and account status."}
+                    </p>
                 </div>
-                <Button onClick={() => setShowCreate(!showCreate)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Staff
-                </Button>
-            </div>
 
-            {showCreate && (
-                <Card className="border-primary/20 bg-primary/5">
-                    <CardHeader>
-                        <CardTitle>Register New Staff</CardTitle>
-                        <CardDescription>Create an account for a new employee.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <form onSubmit={handleCreate} className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
+                {/* Delete Confirmation Dialog */}
+                <AlertDialog open={!!deleteUser} onOpenChange={(open) => !open && setDeleteUser(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the account for <strong>{deleteUser?.username}</strong>.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteUser} className="bg-red-600 hover:bg-red-700">
+                                Delete Account
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+
+                {/* Edit Dialog */}
+                <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Edit User Roles</DialogTitle>
+                            <DialogDescription>Update permissions for <strong>{editingUser?.username}</strong>.</DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleEditUser} className="space-y-4">
+                            {addError && (
+                                <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+                                    {addError}
+                                </div>
+                            )}
+                            <div className="grid gap-2">
+                                <Label>Roles</Label>
+                                <div className="grid grid-cols-2 gap-2 border p-3 rounded-md">
+                                    {AVAILABLE_ROLES.map(role => (
+                                        <div key={role} className="flex items-center space-x-2">
+                                            <SimpleCheckbox
+                                                id={`edit-role-${role}`}
+                                                checked={selectedRoles.includes(role)}
+                                                onCheckedChange={() => toggleRole(role)}
+                                            />
+                                            <label htmlFor={`edit-role-${role}`} className="text-sm font-medium capitalize cursor-pointer">
+                                                {role.replace('_', ' ')}
+                                            </label>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button type="submit">Save Changes</Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogContent>
+                </Dialog>
+
+                {/* ... (Add Staff Dialog same) ... */}
+                {!currentUser?.is_super_admin && (
+                    <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+                        <DialogTrigger asChild>
+                            <Button>
+                                <Plus className="mr-2 h-4 w-4" /> Add Staff
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Add New Team Member</DialogTitle>
+                                <DialogDescription>Create a new account for a doctor, nurse, or staff member.</DialogDescription>
+                            </DialogHeader>
+                            <form onSubmit={handleAddUser} className="space-y-4">
+                                {addError && (
+                                    <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">
+                                        {addError}
+                                    </div>
+                                )}
                                 <div className="grid gap-2">
                                     <Label>Username</Label>
-                                    <Input
-                                        placeholder="e.g. dr_smith"
-                                        value={formData.username}
-                                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                                        required
-                                    />
+                                    <Input value={newUsername} onChange={e => setNewUsername(e.target.value)} required />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label>Initial Password</Label>
-                                    <Input
-                                        type="password"
-                                        value={formData.password}
-                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        required
-                                    />
+                                    <Label>Password</Label>
+                                    <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required />
                                 </div>
-                            </div>
+                                <div className="grid gap-2">
+                                    <Label>Roles</Label>
+                                    <div className="grid grid-cols-2 gap-2 border p-3 rounded-md">
+                                        {AVAILABLE_ROLES.map(role => (
+                                            <div key={role} className="flex items-center space-x-2">
+                                                <SimpleCheckbox
+                                                    id={`role-${role}`}
+                                                    checked={selectedRoles.includes(role)}
+                                                    onCheckedChange={() => toggleRole(role)}
+                                                />
+                                                <label htmlFor={`role-${role}`} className="text-sm font-medium capitalize cursor-pointer">
+                                                    {role.replace('_', ' ')}
+                                                </label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <DialogFooter>
+                                    <Button type="submit">Create User</Button>
+                                </DialogFooter>
+                            </form>
+                        </DialogContent>
+                    </Dialog>
+                )}
+
+                {/* Reset Password Dialog (Available to both, but usually Super Admin might reset Clinic Admin passwords) */}
+                <Dialog open={!!resetUser} onOpenChange={(open) => !open && setResetUser(null)}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Reset Password</DialogTitle>
+                            <DialogDescription>Set a new password for {resetUser?.username}.</DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={handleResetPassword} className="space-y-4">
                             <div className="grid gap-2">
-                                <Label>Role</Label>
-                                <select
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={formData.role}
-                                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                                >
-                                    <option value="doctor">Doctor</option>
-                                    <option value="nurse">Nurse</option>
-                                    <option value="front_desk">Front Desk</option>
-                                    <option value="lab_scientist">Lab Scientist</option>
-                                    <option value="admin">Clinic Admin</option>
-                                </select>
+                                <Label>New Password</Label>
+                                <Input
+                                    type="text"
+                                    value={resetPasswordInput}
+                                    onChange={e => setResetPasswordInput(e.target.value)}
+                                    placeholder="Enter new password"
+                                    required
+                                />
                             </div>
-
-                            <div className="flex justify-end">
-                                <Button type="submit" disabled={submitting}>
-                                    {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                                    Create User
-                                </Button>
-                            </div>
+                            <DialogFooter>
+                                <Button type="submit">Update Password</Button>
+                            </DialogFooter>
                         </form>
-                    </CardContent>
-                </Card>
-            )}
-
-            <div className="rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Username</TableHead>
-                            <TableHead>Role</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow>
-                                <TableCell colSpan={3} className="text-center py-10">
-                                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-                                </TableCell>
-                            </TableRow>
-                        ) : users.map((u) => (
-                            <TableRow key={u.id}>
-                                <TableCell className="font-medium">{u.username}</TableCell>
-                                <TableCell className="capitalize badge">{u.role.replace('_', ' ')}</TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setUserToReset(u)}
-                                        title="Reset Password"
-                                    >
-                                        <Key className="w-4 h-4 text-muted-foreground hover:text-primary" />
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
+                    </DialogContent>
+                </Dialog>
             </div>
 
-            {/* Reset Password Dialog */}
-            <AlertDialog open={!!userToReset} onOpenChange={() => setUserToReset(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Reset Password for {userToReset?.username}</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Enter a new password for this user.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <div className="py-4">
-                        <Label>New Password</Label>
+
+            <Card>
+                <CardHeader>
+                    <div className="relative">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
-                            type="password"
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                            placeholder="Enter new password"
+                            placeholder={currentUser?.is_super_admin ? "Search clinics or admins..." : "Search staff..."}
+                            className="pl-8 max-w-sm"
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleResetPassword}>Update Password</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </div>
+                </CardHeader>
+                <CardContent>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Status</TableHead>
+                                {currentUser?.is_super_admin && <TableHead>Clinic Name</TableHead>}
+                                <TableHead>Username</TableHead>
+                                {!currentUser?.is_super_admin && <TableHead>Roles</TableHead>}
+                                <TableHead className="text-right">Actions</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {loading ? (
+                                <TableRow><TableCell colSpan={4} className="text-center h-24">Loading...</TableCell></TableRow>
+                            ) : filteredUsers.length === 0 ? (
+                                <TableRow><TableCell colSpan={4} className="text-center h-24 text-muted-foreground">No users found.</TableCell></TableRow>
+                            ) : (
+                                filteredUsers.map((user) => {
+                                    const isSelf = user.id === currentUser.id
+                                    const isAdmin = user.roles.includes("admin")
+                                    // Protect logic:
+                                    // 1. Always protect Self (User cannot delete/suspend themselves)
+                                    // 2. Protect "Pure Admins" (Admins with ONLY 'admin' role) to prevent accidental lockout/modification by other admins?
+                                    //    User Request: "i only want a protected for the admin who is only admin"
+                                    const isPureAdmin = user.roles.length === 1 && user.roles[0] === "admin"
+                                    const isProtected = (isSelf || isPureAdmin) && !currentUser.is_super_admin
+
+                                    return (
+                                        <TableRow key={user.id} className={!user.is_active ? "opacity-50 bg-muted/50" : ""}>
+                                            <TableCell>
+                                                <Badge variant={user.is_active ? "success" : "secondary"} className={user.is_active ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                                                    {user.is_active ? "Active" : "Suspended"}
+                                                </Badge>
+                                            </TableCell>
+
+                                            {/* SUPER ADMIN: Show Clinic Name */}
+                                            {currentUser?.is_super_admin && (
+                                                <TableCell className="font-medium text-blue-600">
+                                                    {(user as any).clinic_name || "N/A"}
+                                                </TableCell>
+                                            )}
+
+                                            <TableCell className="font-medium">{user.username}</TableCell>
+
+                                            {/* CLINIC ADMIN: Show Roles */}
+                                            {!currentUser?.is_super_admin && (
+                                                <TableCell>
+                                                    {user.roles.map(r => <RoleBadge key={r} role={r} />)}
+                                                </TableCell>
+                                            )}
+
+                                            <TableCell className="text-right flex justify-end gap-2">
+                                                {!isProtected && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => openEdit(user)}
+                                                    >
+                                                        Edit
+                                                    </Button>
+                                                )}
+                                                {!isProtected && (
+                                                    <>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            title="Reset Password"
+                                                            onClick={() => setResetUser(user)}
+                                                        >
+                                                            <KeyRound className="h-4 w-4 text-muted-foreground" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            title={user.is_active ? "Suspend Account" : "Activate Account"}
+                                                            onClick={() => toggleStatus(user)}
+                                                        >
+                                                            {user.is_active ? (
+                                                                <Ban className="h-4 w-4 text-red-500" />
+                                                            ) : (
+                                                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                                            )}
+                                                        </Button>
+
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            title="Delete Account"
+                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                            onClick={() => setDeleteUser(user)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </>
+                                                )}
+                                                {isProtected && !currentUser.is_super_admin && (
+                                                    <span className="text-xs text-muted-foreground italic px-2 py-2">Protected</span>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    )
+                                })
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+        </div >
     )
 }

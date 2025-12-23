@@ -1,21 +1,27 @@
 import asyncio
+from database import get_db, engine
 from sqlalchemy import select
-from database import SessionLocal
 from models import Tenant, User
 
-async def debug_data():
-    async with SessionLocal() as db:
-        print("\n--- TENANTS ---")
-        result = await db.execute(select(Tenant))
-        tenants = result.scalars().all()
-        for t in tenants:
-            print(f"Tenant: {t.name} (ID: {t.id}) - Domain: {t.domain}")
-
-        print("\n--- USERS ---")
-        result = await db.execute(select(User))
-        users = result.scalars().all()
-        for u in users:
-            print(f"User: {u.username} (Role: {u.role}) -> TenantID: {u.tenant_id}")
+async def debug():
+    async with engine.begin() as conn:
+        from database import SessionLocal
+        async with SessionLocal() as db:
+            print("--- TENANTS ---")
+            res = await db.execute(select(Tenant))
+            tenants = res.scalars().all()
+            for t in tenants:
+                print(f"Tenant: {t.name} (ID: {t.id})")
+                
+            print("\n--- USERS ---")
+            res = await db.execute(select(User))
+            users = res.scalars().all()
+            for u in users:
+                print(f"User: {u.username} (Tenant: {u.tenant_id}, Roles: {u.roles})")
+                if u.username == "apollo_admin":
+                    from main import create_access_token
+                    token = create_access_token(data={"sub": u.username})
+                    print(f"\nGeneratred Token for apollo_admin: {token}")
 
 if __name__ == "__main__":
-    asyncio.run(debug_data())
+    asyncio.run(debug())

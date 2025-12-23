@@ -1,23 +1,23 @@
 import { useState, useEffect } from "react"
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom"
-import { LayoutDashboard, Users, Settings, LogOut, Building2, Loader2 } from "lucide-react"
-import axios from "axios"
-import { cn } from "@/lib/utils"
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom"
+import { LayoutDashboard, Users, Building2, Menu, LogOut, Settings, Calendar, Import } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import axios from "axios"
 
 interface UserContext {
     id: string
     username: string
-    role: string
+    roles: string[]
     tenant_name: string
     is_super_admin: boolean
 }
 
 export default function DashboardLayout() {
-    const location = useLocation()
-    const navigate = useNavigate()
+    const [isCollapsed, setIsCollapsed] = useState(false)
     const [user, setUser] = useState<UserContext | null>(null)
-    const [loading, setLoading] = useState(true)
+    const navigate = useNavigate()
+    const location = useLocation()
 
     useEffect(() => {
         const fetchUser = async () => {
@@ -27,16 +27,13 @@ export default function DashboardLayout() {
                     navigate("/login")
                     return
                 }
-                const res = await axios.get("http://localhost:8000/users/me", {
+                const res = await axios.get("http://127.0.0.1:8000/users/me", {
                     headers: { Authorization: `Bearer ${token}` }
                 })
                 setUser(res.data)
             } catch (err) {
-                console.error("Failed to fetch user", err)
                 localStorage.removeItem("token")
                 navigate("/login")
-            } finally {
-                setLoading(false)
             }
         }
         fetchUser()
@@ -44,85 +41,114 @@ export default function DashboardLayout() {
 
     const handleLogout = () => {
         localStorage.removeItem("token")
-        window.location.href = "/login"
+        navigate("/login")
     }
 
-    if (loading) {
-        return (
-            <div className="flex h-screen items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        )
-    }
+    if (!user) return <div className="flex h-screen items-center justify-center"><h2 className="animate-pulse text-xl">Loading Clinical OS...</h2></div>
 
+    // Define sidebar items with visibility logic
+    // Define sidebar items with visibility logic
     const sidebarItems = [
         { icon: LayoutDashboard, label: "Overview", href: "/", visible: true },
-        // Only show "Clinics" to Super Admins
+        // CLINICAL ITEMS: Hide if Super Admin (CEO doesn't need to see specific appointments)
+        { icon: Calendar, label: "Appointments", href: "/appointments", visible: !user?.is_super_admin && user?.roles?.some(r => ["admin", "doctor", "front_desk"].includes(r)) },
+        { icon: Users, label: "Patients", href: "/patients", visible: !user?.is_super_admin },
+        { icon: Import, label: "Lab Import", href: "/lab-import", visible: !user?.is_super_admin },
+
+        // PLATFORM ITEMS: Only for Super Admin
         { icon: Building2, label: "Clinics (Tenants)", href: "/tenants", visible: user?.is_super_admin },
-        { icon: Users, label: "User Management", href: "/users", visible: true },
-        { icon: Settings, label: "System Settings", href: "/settings", visible: true },
+
+        // MIXED ITEMS (But functionally different contexts)
+        // User Mgmt: Super Admin sees Global Staff? Or just Tenant Admins? For now, keep visible for both contexts.
+        // User Mgmt: Only for CLINIC Admins (to manage their staff). Super Admin uses 'Clinics' tab.
+        { icon: Users, label: "Staff Management", href: "/users", visible: !user?.is_super_admin && user?.roles?.includes("admin") },
+        { icon: Settings, label: "System Settings", href: "/settings", visible: user?.is_super_admin || user?.roles?.includes("admin") },
     ]
 
     return (
-        <div className="flex h-screen bg-muted/20">
-            {/* Sidebar */}
-            <aside className="w-64 bg-card border-r hidden md:flex flex-col">
-                <div className="p-6 border-b">
-                    <div className="flex items-center gap-2 font-bold text-xl">
-                        <span className="bg-primary text-primary-foreground p-1 rounded">C</span>
-                        <span>Clinical OS</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                        {user?.is_super_admin ? "Super Admin Console" : `${user?.tenant_name} Console`}
-                    </p>
+        <div className="flex h-screen w-full bg-muted/40">
+            {/* Sidebar (Desktop) */}
+            <aside className="hidden w-64 flex-col border-r bg-background lg:flex">
+                <div className="flex h-14 items-center border-b px-6">
+                    <Link to="/" className="flex items-center gap-2 font-semibold">
+                        {(user as any).logo_url ? (
+                            <img src={(user as any).logo_url} alt="Logo" className="h-8 w-8 object-contain" />
+                        ) : (
+                            <Building2 className="h-6 w-6" />
+                        )}
+                        <span className="truncate max-w-[150px]" title={user.tenant_name}>{user.tenant_name}</span>
+                    </Link>
                 </div>
-
-                <nav className="flex-1 p-4 space-y-1">
-                    {sidebarItems.filter(i => i.visible).map((item) => {
-                        const Icon = item.icon
-                        const isActive = location.pathname === item.href
-                        return (
-                            <Link
-                                key={item.href}
-                                to={item.href}
-                                className={cn(
-                                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                                    isActive
-                                        ? "bg-primary/10 text-primary"
-                                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                                )}
-                            >
-                                <Icon className="w-4 h-4" />
-                                {item.label}
-                            </Link>
-                        )
-                    })}
-                </nav>
-
-                <div className="p-4 border-t">
-                    <div className="mb-4 px-2">
-                        <p className="text-xs font-medium text-muted-foreground">Logged in as</p>
-                        <p className="text-sm font-bold truncate">{user?.username}</p>
-                    </div>
-                    <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600 hover:bg-red-50" onClick={handleLogout}>
-                        <LogOut className="w-4 h-4 mr-2" />
-                        Sign Out
+                <div className="flex-1 overflow-auto py-4">
+                    <nav className="grid items-start px-4 text-sm font-medium">
+                        {sidebarItems.map((item, index) => (
+                            item.visible && (
+                                <Link
+                                    key={index}
+                                    to={item.href}
+                                    className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary ${location.pathname === item.href ? "bg-muted text-primary" : "text-muted-foreground"}`}
+                                >
+                                    <item.icon className="h-4 w-4" />
+                                    {item.label}
+                                </Link>
+                            )
+                        ))}
+                    </nav>
+                </div>
+                <div className="mt-auto border-t p-4">
+                    <Button variant="outline" className="w-full gap-2" onClick={handleLogout}>
+                        <LogOut className="h-4 w-4" />
+                        Logout
                     </Button>
                 </div>
             </aside>
 
-            {/* Main Content */}
-            <main className="flex-1 overflow-y-auto">
-                <header className="h-16 border-b bg-card flex items-center px-6 sticky top-0 z-10">
-                    <h1 className="text-lg font-semibold">
-                        {sidebarItems.find(i => i.href === location.pathname)?.label || "Dashboard"}
-                    </h1>
+            {/* Mobile Header + Content */}
+            <div className="flex flex-col flex-1">
+                <header className="flex h-14 items-center gap-4 border-b bg-background px-6 lg:hidden">
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant="outline" size="icon" className="shrink-0 lg:hidden">
+                                <Menu className="h-5 w-5" />
+                                <span className="sr-only">Toggle navigation menu</span>
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="left" className="flex flex-col">
+                            <nav className="grid gap-2 text-lg font-medium">
+                                <Link to="#" className="flex items-center gap-2 text-lg font-semibold">
+                                    {(user as any).logo_url ? (
+                                        <img src={(user as any).logo_url} alt="Logo" className="h-8 w-8 object-contain" />
+                                    ) : (
+                                        <Building2 className="h-6 w-6" />
+                                    )}
+                                    <span>{user.tenant_name}</span>
+                                </Link>
+                                {sidebarItems.map((item, index) => (
+                                    item.visible && (
+                                        <Link
+                                            key={index}
+                                            to={item.href}
+                                            className="mx-[-0.65rem] flex items-center gap-4 rounded-xl px-3 py-2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            <item.icon className="h-5 w-5" />
+                                            {item.label}
+                                        </Link>
+                                    )
+                                ))}
+                            </nav>
+                        </SheetContent>
+                    </Sheet>
+                    <div className="w-full flex-1">
+                        <h1 className="text-lg font-semibold">{user.tenant_name}</h1>
+                    </div>
                 </header>
-                <div className="p-6 max-w-7xl mx-auto">
-                    {/* Pass User Context to Outlet */}
+
+                {/* Main Content Area */}
+                <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 overflow-auto">
+                    {/* Pass user context to child pages (Overview, etc) */}
                     <Outlet context={{ user }} />
-                </div>
-            </main>
+                </main>
+            </div>
         </div>
     )
 }

@@ -20,12 +20,12 @@ export default function Login() {
         setLoading(true)
 
         try {
-            // OAuth2 requires form-data format (x-www-form-urlencoded)
-            const formData = new FormData()
-            formData.append("username", username)
-            formData.append("password", password)
+            // OAuth2 requires x-www-form-urlencoded
+            const params = new URLSearchParams()
+            params.append("username", username)
+            params.append("password", password)
 
-            const response = await axios.post("http://localhost:8000/auth/token", formData)
+            const response = await axios.post("http://127.0.0.1:8000/token", params)
 
             const { access_token } = response.data
 
@@ -64,7 +64,7 @@ export default function Login() {
                             <Label htmlFor="username">Username</Label>
                             <Input
                                 id="username"
-                                placeholder="manish"
+                                placeholder="e.g. admin"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
