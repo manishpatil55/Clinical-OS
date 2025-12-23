@@ -94,8 +94,8 @@ export default function DashboardLayout() {
                 </div>
                 <div className="mt-auto border-t p-4 space-y-4">
                     <div className="text-center">
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Powered by</p>
-                        <p className="text-xl font-extrabold bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
+                        <p className="text-[7px] uppercase tracking-wider text-muted-foreground font-semibold opacity-80">Powered by</p>
+                        <p className="text-[22px] font-bold tracking-wide bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">
                             Clinical OS
                         </p>
                     </div>
